@@ -14,6 +14,10 @@ type Coordinator struct {
 }
 
 // Your code here -- RPC handlers for the worker to call.
+func (c *Coordinator) RPC_handler() error {
+
+	return nil
+}
 
 // an example RPC handler.
 //
