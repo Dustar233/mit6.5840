@@ -70,7 +70,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		log.Fatal("dialing:", err)
 	}
 	defer c.Close()
-
+	
 	err = c.Call(rpcname, args, reply)
 	if err == nil {
 		return true
