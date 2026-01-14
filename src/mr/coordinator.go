@@ -6,15 +6,21 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"sync"
 )
 
 type Coordinator struct {
 	// Your definitions here.
-
+	task_phase   bool
+	map_status   []int
+	map_paths    []string
+	reduce_paths []string
+	nReduce      int
+	mutex        sync.Mutex
 }
 
 // Your code here -- RPC handlers for the worker to call.
-func (c *Coordinator) RPC_handler() error {
+func (c *Coordinator) RPC_handler(args *Task_Args, reply *Task_Args) error {
 
 	return nil
 }
@@ -58,7 +64,11 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
-
+	c.nReduce = nReduce
+	c.map_paths = files
+	for i := 0; i < len(c.map_paths); i++ {
+		c.map_status[i] = 0
+	}
 	c.server()
 	return &c
 }

@@ -26,8 +26,8 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
-	args := Args{}
-	reply := Replys{}
+	args := Task_Args{}
+	reply := Task_Replys{}
 
 	ok := call("coordinator.RPC_handle", &args, &reply)
 	if ok {
@@ -79,7 +79,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		log.Fatal("dialing:", err)
 	}
 	defer c.Close()
-	
+
 	err = c.Call(rpcname, args, reply)
 	if err == nil {
 		return true
