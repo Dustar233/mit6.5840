@@ -20,8 +20,12 @@ type Coordinator struct {
 }
 
 // Your code here -- RPC handlers for the worker to call.
-func (c *Coordinator) RPC_handler(args *Task_Args, reply *Task_Args) error {
+func (c *Coordinator) RPC_handler(args *Task_Args, replys *Task_Replys) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 
+	if c.task_phase == false {
+	}
 	return nil
 }
 
