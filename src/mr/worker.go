@@ -44,7 +44,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		ok := call("Coordinator.RPC_handler", &args, &reply)
 		if ok {
-			fmt.Printf("success for task call\n")
+			fmt.Printf("success for %v %v task call\n", reply.Task_id, reply.Task_type)
 		} else {
 			fmt.Printf("call failed!\n")
 		}
@@ -104,7 +104,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			reply = Task_Replies{}
 			ok := call("Coordinator.RPC_handler", &args, &reply)
 			if ok {
-				fmt.Printf("success for task call\n")
+				fmt.Printf("success for %v %v task call\n", reply.Task_id, reply.Task_type)
 			} else {
 				fmt.Printf("call failed!\n")
 			}
@@ -118,10 +118,11 @@ func Worker(mapf func(string, string) []KeyValue,
 			for _, s := range path {
 				filename := s
 				file, err := os.Open(filename)
+				defer file.Close()
 				if err != nil {
 					fmt.Printf("file cannot open: %v", filename)
+					continue
 				}
-				defer file.Close()
 
 				dec := json.NewDecoder(file)
 				for {
@@ -136,7 +137,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 			sort.Sort(by_kv(intermediate))
 
-			oname := fmt.Sprintf("mr-out-%d", task_id)
+			oname := fmt.Sprintf("mr-tmp-out-%d", task_id)
 			ofile, _ := os.Create(oname)
 
 			i := 0
@@ -155,6 +156,7 @@ func Worker(mapf func(string, string) []KeyValue,
 				fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, result)
 				i = j
 			}
+			os.Rename(oname, fmt.Sprintf("mr-out-%d", task_id))
 
 			ofile.Close()
 
@@ -163,7 +165,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			args.Task_id = task_id
 			ok := call("Coordinator.RPC_handler", &args, &reply)
 			if ok {
-				fmt.Printf("success for task call\n")
+				fmt.Printf("success for %v %v task call\n", reply.Task_id, reply.Task_type)
 				if reply.Task_type == "Done" {
 					fmt.Printf("Done!\n")
 					return
