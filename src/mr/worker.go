@@ -111,7 +111,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		} else if reply.Task_type == "Reduce" {
 			task_id := reply.Task_id
-			path := reply.reduce_path
+			path := reply.Reduce_path
 
 			var intermediate []KeyValue
 
@@ -119,10 +119,10 @@ func Worker(mapf func(string, string) []KeyValue,
 				filename := s
 				file, err := os.Open(filename)
 				if err != nil {
-					fmt.Printf("file cannot open: ", filename)
+					fmt.Printf("file cannot open: %v", filename)
 				}
 				defer file.Close()
-				
+
 				dec := json.NewDecoder(file)
 				for {
 					var kv KeyValue
@@ -131,7 +131,7 @@ func Worker(mapf func(string, string) []KeyValue,
 					}
 					intermediate = append(intermediate, kv)
 				}
-				
+
 			}
 
 			sort.Sort(by_kv(intermediate))
@@ -165,6 +165,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			if ok {
 				fmt.Printf("success for task call\n")
 				if reply.Task_type == "Done" {
+					fmt.Printf("Done!\n")
 					return
 				}
 			} else {

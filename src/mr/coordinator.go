@@ -52,7 +52,7 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 				}
 			} else {
 				replies.Task_type = "Reduce"
-				replies.reduce_path = make([]string, c.nMap)
+				replies.Reduce_path = make([]string, c.nMap)
 				for i, status := range c.reduce_status {
 					if status == 0 {
 						replies.Task_id = i
@@ -61,9 +61,10 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 					}
 				}
 				for i := 0; i < c.nMap; i++ {
-					index := replies.Task_id*c.nMap + i
+					index := (i*c.nMap + replies.Task_id)
 					if index < len(c.reduce_paths) {
-						replies.reduce_path[i] = c.reduce_paths[index]
+						replies.Reduce_path[i] = c.reduce_paths[index]
+						//fmt.Printf("assign %v\n", replies.reduce_path[i])
 					}
 				}
 			}
@@ -76,9 +77,8 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 		c.mutex.Unlock()
 
 	} else if args.Req_type == "OK" {
-
+		c.mutex.Lock()
 		if c.task_phase == "Map" {
-			c.mutex.Lock()
 
 			for i, k := range args.Result_path {
 				c.reduce_paths[args.Task_id*c.nMap+i] = k
@@ -92,9 +92,8 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 				c.task_phase = "Reduce"
 
 			}
-			c.mutex.Unlock()
+
 		} else if c.task_phase == "Reduce" {
-			c.mutex.Lock()
 
 			c.reduce_status[args.Task_id] = 2
 			c.rest_comp_counts--
@@ -102,9 +101,9 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 				c.task_done = true
 				replies.Task_type = "Done"
 			}
-			c.mutex.Unlock()
-		}
 
+		}
+		c.mutex.Unlock()
 	}
 	return nil
 }

@@ -30,7 +30,7 @@ type Task_Replies struct {
 	Task_type string //Map, Reduce, Wait, Done
 	//false for map task, true for reduce task
 	Read_path   string
-	reduce_path []string
+	Reduce_path []string
 	NReduce     int
 	NMap        int
 	Task_id     int
