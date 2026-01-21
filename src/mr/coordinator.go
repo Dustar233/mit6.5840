@@ -35,13 +35,13 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 
 	if args.Req_type == "Task" {
 		c.mutex.Lock()
-		replies.nReduce = c.nReduce
+		replies.NReduce = c.nReduce
 		if c.rest_send_counts > 0 {
 
 			if c.task_phase == "Map" {
 				replies.Task_type = "Map"
-				for i := range c.map_status {
-					if i == 0 {
+				for i, status := range c.map_status {
+					if status == 0 {
 						replies.Read_path = c.map_paths[i]
 						c.map_status[i] = 1
 						replies.Task_id = i
@@ -50,16 +50,19 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 				}
 			} else {
 				replies.Task_type = "Reduce"
-				replies.reduce_path = make([]string, c.nReduce)
-				for i := range c.reduce_status {
-					if i == 0 {
+				replies.reduce_path = make([]string, c.nMap)
+				for i, status := range c.reduce_status {
+					if status == 0 {
 						replies.Task_id = i
 						c.reduce_status[i] = 1
 						break
 					}
 				}
-				for i := range c.nMap {
-					replies.reduce_path[i] = c.reduce_paths[i*c.nMap+replies.Task_id]
+				for i := 0; i < c.nMap; i++ {
+					index := i*c.nReduce + replies.Task_id
+					if index < len(c.reduce_paths) {
+						replies.reduce_path[i] = c.reduce_paths[index]
+					}
 				}
 			}
 			c.rest_send_counts--
@@ -75,8 +78,8 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 		if c.task_phase == "Map" {
 			c.mutex.Lock()
 
-			for i := range args.Result_path {
-				c.reduce_paths[args.Task_id*c.nMap+i] = args.Result_path[i]
+			for i, k := range args.Result_path {
+				c.reduce_paths[args.Task_id*c.nMap+i] = k
 			}
 			c.map_status[args.Task_id] = 2
 			c.rest_comp_counts--
