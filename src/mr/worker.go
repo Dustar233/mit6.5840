@@ -42,7 +42,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		reply := Task_Replies{}
 		args.Req_type = "Task"
 
-		ok := call("coordinator.RPC_handle", &args, &reply)
+		ok := call("Coordinator.RPC_handler", &args, &reply)
 		if ok {
 			fmt.Printf("success for task call\n")
 		} else {
@@ -102,7 +102,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			args.Req_type = "OK"
 			args.Task_id = task_id
 			reply = Task_Replies{}
-			ok := call("coordinator.RPC_handle", &args, &reply)
+			ok := call("Coordinator.RPC_handler", &args, &reply)
 			if ok {
 				fmt.Printf("success for task call\n")
 			} else {
@@ -119,9 +119,10 @@ func Worker(mapf func(string, string) []KeyValue,
 				filename := s
 				file, err := os.Open(filename)
 				if err != nil {
-					log.Fatal("file cannot open: ", err)
+					fmt.Printf("file cannot open: ", filename)
 				}
-
+				defer file.Close()
+				
 				dec := json.NewDecoder(file)
 				for {
 					var kv KeyValue
@@ -130,7 +131,7 @@ func Worker(mapf func(string, string) []KeyValue,
 					}
 					intermediate = append(intermediate, kv)
 				}
-				file.Close()
+				
 			}
 
 			sort.Sort(by_kv(intermediate))
@@ -160,15 +161,16 @@ func Worker(mapf func(string, string) []KeyValue,
 			reply = Task_Replies{}
 			args.Req_type = "OK"
 			args.Task_id = task_id
-			ok := call("coordinator.RPC_handler", &args, &reply)
+			ok := call("Coordinator.RPC_handler", &args, &reply)
 			if ok {
 				fmt.Printf("success for task call\n")
+				if reply.Task_type == "Done" {
+					return
+				}
 			} else {
 				fmt.Printf("call failed!\n")
 			}
-			if reply.Task_type == "Done" {
-				return
-			}
+
 		}
 	}
 	// uncomment to send the Example RPC to the coordinator.

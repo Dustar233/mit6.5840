@@ -61,7 +61,7 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 					}
 				}
 				for i := 0; i < c.nMap; i++ {
-					index := i*c.nReduce + replies.Task_id
+					index := replies.Task_id*c.nMap + i
 					if index < len(c.reduce_paths) {
 						replies.reduce_path[i] = c.reduce_paths[index]
 					}
