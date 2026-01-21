@@ -26,6 +26,8 @@ type Coordinator struct {
 	nReduce          int
 	nMap             int
 	mutex            sync.Mutex
+
+	task_done bool
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -91,9 +93,16 @@ func (c *Coordinator) RPC_handler(args *Task_Args, replies *Task_Replies) error 
 
 			}
 			c.mutex.Unlock()
-		}
-		if c.task_phase == "Reduce" {
-			//TODO same
+		} else if c.task_phase == "Reduce" {
+			c.mutex.Lock()
+
+			c.reduce_status[args.Task_id] = 2
+			c.rest_comp_counts--
+			if c.rest_comp_counts <= 0 {
+				c.task_done = true
+				replies.Task_type = "Done"
+			}
+			c.mutex.Unlock()
 		}
 
 	}
@@ -128,6 +137,9 @@ func (c *Coordinator) Done() bool {
 	ret := false
 
 	// Your code here.
+	if c.task_done == true {
+		ret = true
+	}
 
 	return ret
 }
@@ -157,6 +169,8 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c.rest_comp_counts = len(files)
 	c.rest_send_counts = len(files)
 	c.task_phase = "Map"
+
+	c.task_done = false
 
 	c.server()
 	return &c

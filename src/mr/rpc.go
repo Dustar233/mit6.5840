@@ -27,11 +27,12 @@ type ExampleReply struct {
 // Add your RPC definitions here.
 
 type Task_Replies struct {
-	Task_type string //Map, Reduce, Wait
+	Task_type string //Map, Reduce, Wait, Done
 	//false for map task, true for reduce task
 	Read_path   string
 	reduce_path []string
-	nReduce     int
+	NReduce     int
+	NMap        int
 	Task_id     int
 }
 
