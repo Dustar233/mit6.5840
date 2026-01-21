@@ -26,14 +26,19 @@ type ExampleReply struct {
 
 // Add your RPC definitions here.
 
-type Task_Replys struct {
-	Task_type bool
-	//true for map task, false for reduce task
+type Task_Replies struct {
+	Task_type string //Map, Reduce, Wait
+	//false for map task, true for reduce task
 	Read_path   string
-	Result_path string
+	reduce_path []string
+	nReduce     int
+	Task_id     int
 }
 
 type Task_Args struct {
+	Req_type    string //Task, OK
+	Task_id     int
+	Result_path []string
 }
 
 // Cook up a unique-ish UNIX-domain socket name

@@ -1,10 +1,14 @@
 package mr
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"net/rpc"
+	"os"
+	"time"
 )
 
 // Map functions return a slice of KeyValue.
@@ -27,15 +31,78 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	// Your worker implementation here.
 	args := Task_Args{}
-	reply := Task_Replys{}
+	reply := Task_Replies{}
 
 	ok := call("coordinator.RPC_handle", &args, &reply)
 	if ok {
-		fmt.Printf("success!\n")
+		fmt.Printf("success for task call\n")
 	} else {
 		fmt.Printf("call failed!\n")
 	}
 
+	if reply.Task_type == "Wait" {
+		time.Sleep(1 * time.Second)
+		return
+	}
+
+	if reply.Task_type == "Map" {
+		task_id := reply.Task_id
+		path := reply.Read_path
+		nReduce := reply.nReduce
+		file, err := os.Open(path)
+		if err != nil {
+			log.Fatalf("cannot open %v", path)
+		}
+		content, err := io.ReadAll(file)
+		file.Close()
+		if err != nil {
+			log.Fatal("cannot read %v", path)
+		}
+
+		kvs := mapf(path, string(content))
+
+		temp_files := make([]*os.File, nReduce)
+		encoders := make([]*json.Encoder, nReduce)
+
+		for i := 0; i < nReduce; i++ {
+			temp_file, err := os.CreateTemp("", fmt.Sprintf("mr-temp-%d-%d", task_id, i))
+			if err != nil {
+				log.Fatal("create temp: ", err)
+			}
+			temp_files[i] = temp_file
+			encoders[i] = json.NewEncoder(temp_file)
+		}
+
+		for _, kv := range kvs {
+			k := ihash(kv.Key) % nReduce
+			err := encoders[k].Encode(&kv)
+			if err != nil {
+				log.Fatal("encode: ", err)
+			}
+		}
+
+		args.Result_path = make([]string, nReduce)
+
+		for i := 0; i < nReduce; i++ {
+			temp_files[i].Close()
+			name := fmt.Sprintf("mr-%d-%d", task_id, i)
+			args.Result_path[i] = name
+			os.Rename(temp_files[i].Name(), name)
+		}
+
+		args.Req_type = "OK"
+		args.Task_id = task_id
+
+		ok := call("coordinator.RPC_handle", &args, &reply)
+		if ok {
+			fmt.Printf("success for task call\n")
+		} else {
+			fmt.Printf("call failed!\n")
+		}
+
+	} else if reply.Task_type == "Reduce" {
+
+	}
 	// uncomment to send the Example RPC to the coordinator.
 	// CallExample()
 
