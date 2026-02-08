@@ -47,6 +47,9 @@ func (lk *Lock) Acquire() {
 
 		if err == rpc.ErrNoKey {
 			err := lk.ck.Put(lk.name, lk.id, 0)
+			if err == rpc.ErrMaybe {
+				continue
+			}
 			if err == rpc.OK {
 				return
 			}
@@ -60,11 +63,14 @@ func (lk *Lock) Acquire() {
 
 		if val == "unlock" && err == rpc.OK {
 			err := lk.ck.Put(lk.name, lk.id, ver)
+			if err == rpc.ErrMaybe {
+				continue
+			}
 			if err == rpc.OK {
 				return
 			}
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 }
@@ -86,6 +92,10 @@ func (lk *Lock) Release() {
 
 			err = lk.ck.Put(lk.name, "unlock", ver)
 
+			if err == rpc.ErrMaybe {
+				continue
+			}
+
 			if err == rpc.OK {
 				return
 			}
@@ -93,6 +103,6 @@ func (lk *Lock) Release() {
 		} else {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
