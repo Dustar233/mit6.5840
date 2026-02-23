@@ -145,6 +145,24 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (3A, 3B).
 }
 
+type AppendEntriesArg struct {
+	Term            int
+	LeaderId        int
+	PrevLogTerm     int
+	PrevLogIndex    int
+	Entries         []string
+	LastCommitIndex int
+}
+
+type AppendEntriesReply struct {
+	Term int
+	OK   bool
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArg, reply *AppendEntriesReply) {
+
+}
+
 // example code to send a RequestVote RPC to a server.
 // server is the index of the target server in rf.peers[].
 // expects RPC arguments in args.
