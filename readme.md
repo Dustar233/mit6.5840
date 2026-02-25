@@ -11,4 +11,6 @@ It is aimed to learn:
 
 # stage 
 
-1. Lab 1 (now)
+1. Lab 1 MapReduce 
+2. Lab 2 K/V System
+3. Lab 3 Raft (now)
