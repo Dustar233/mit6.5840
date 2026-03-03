@@ -48,8 +48,8 @@ func (rf *Raft) resetTimeOut() {
 }
 
 const (
-	heartBeatTimeOut         = 450
-	heartBeatTimeOutDuration = 450
+	heartBeatTimeOut         = 250
+	heartBeatTimeOutDuration = 160
 	heartBeatFreq            = 110
 )
 
