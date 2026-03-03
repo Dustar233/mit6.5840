@@ -40,6 +40,8 @@ type Raft struct {
 
 	lastHeartBeat   time.Time
 	electionTimeout time.Duration
+
+	voteTotal int
 }
 
 func (rf *Raft) resetTimeOut() {
@@ -338,7 +340,7 @@ func (rf *Raft) ticker() {
 			times := len(rf.peers)
 			rf.mu.Unlock()
 
-			voteTotal := 1
+			rf.voteTotal = 1
 
 			for i := 0; i < times; i++ {
 
@@ -372,8 +374,8 @@ func (rf *Raft) ticker() {
 					}
 
 					if reply.OK {
-						voteTotal++
-						if voteTotal > len(rf.peers)/2 {
+						rf.voteTotal++
+						if rf.voteTotal > len(rf.peers)/2 {
 							rf.state = Leader
 							go rf.broadCastHeartBeat()
 						}
