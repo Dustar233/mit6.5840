@@ -32,11 +32,17 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	applyCh chan raftapi.ApplyMsg
+
 	state       int
 	currentTerm int
 	votedFor    int
 	logs        []logEntry
-	logIndex    int
+	commitIndex int
+	lastApplied int
+
+	nextIndex  []int
+	matchIndex []int
 
 	lastHeartBeat   time.Time
 	electionTimeout time.Duration
@@ -64,7 +70,7 @@ func (rf *Raft) isHeartBeat() bool {
 }
 
 type logEntry struct {
-	Data string
+	Data interface{}
 	Term int
 }
 
@@ -196,12 +202,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 }
 
 type AppendEntriesArgs struct {
-	Term            int
-	LeaderId        int
-	PrevLogTerm     int
-	PrevLogIndex    int
-	Entries         []string
-	LastCommitIndex int
+	Term              int
+	LeaderId          int
+	PrevLogTerm       int
+	PrevLogIndex      int
+	Entries           []logEntry
+	leaderCommitIndex int
 }
 
 type AppendEntriesReply struct {
@@ -231,8 +237,25 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	reply.OK = true
 
-	//TODO comp logic
+	//if heartbeat (Entry nil)
+	if args.Entries == nil {
+		return
+	}
 
+	if rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.OK = false
+		return
+	}
+
+	step := args.PrevLogIndex + 1
+	for term, data := range args.Entries {
+		rf.logs[step] = logEntry{
+			Data: data,
+			Term: term,
+		}
+	}
+	rf.lastApplied = step
+	rf.commitIndex = min(args.leaderCommitIndex, step)
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -291,7 +314,21 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (3B).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
+	if rf.state != Leader {
+		return -1, -1, false
+	}
+
+	index = len(rf.logs)
+	term = rf.currentTerm
+	newEntry := logEntry{
+		Data: command,
+		Term: term,
+	}
+
+	rf.logs = append(rf.logs, newEntry)
 	return index, term, isLeader
 }
 
@@ -403,15 +440,6 @@ func (rf *Raft) broadCastHeartBeat() {
 		return
 	}
 
-	args := AppendEntriesArgs{
-		Term:            rf.currentTerm,
-		LeaderId:        rf.me,
-		PrevLogTerm:     -1,
-		PrevLogIndex:    0,
-		Entries:         nil,
-		LastCommitIndex: 0,
-	}
-
 	index := len(rf.peers)
 	rf.mu.Unlock()
 
@@ -427,7 +455,20 @@ func (rf *Raft) broadCastHeartBeat() {
 		go func(i int) {
 
 			rf.mu.Lock()
+			args := AppendEntriesArgs{
+				Term:              rf.currentTerm,
+				LeaderId:          rf.me,
+				PrevLogTerm:       rf.logs[rf.nextIndex[i]-1].Term,
+				PrevLogIndex:      rf.nextIndex[i] - 1,
+				Entries:           nil,
+				leaderCommitIndex: rf.commitIndex,
+			}
+			if rf.nextIndex[i] < len(rf.logs) {
+				args.Entries = rf.logs[i:]
+			}
+
 			reply := AppendEntriesReply{}
+
 			rf.mu.Unlock()
 			ok := rf.sendAppendEntries(i, &args, &reply)
 			if ok {
@@ -438,6 +479,24 @@ func (rf *Raft) broadCastHeartBeat() {
 					rf.votedFor = -1
 					rf.lastHeartBeat = time.Now()
 					rf.resetTimeOut()
+				} else if reply.Term == rf.currentTerm {
+					step := i - 1
+					for reply.OK == false {
+						newArgs := AppendEntriesArgs{
+							Term:              rf.currentTerm,
+							LeaderId:          rf.me,
+							PrevLogTerm:       rf.logs[rf.nextIndex[i]-1].Term,
+							PrevLogIndex:      rf.nextIndex[i] - 1,
+							Entries:           rf.logs[step:],
+							leaderCommitIndex: rf.commitIndex,
+						}
+						reply = AppendEntriesReply{}
+						ok := rf.sendAppendEntries(i, &newArgs, &reply)
+						if ok {
+							step--
+						}
+					}
+
 				}
 				rf.mu.Unlock()
 			}
@@ -471,14 +530,17 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.peers = peers
 	rf.persister = persister
 	rf.me = me
-
+	rf.applyCh = applyCh
 	// Your initialization code here (3A, 3B, 3C).
+
 	rf.state = Follower
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.logs = make([]logEntry, 1)
 	rf.logs[0] = logEntry{Term: 0}
-	rf.logIndex = 0
+
+	rf.commitIndex = 0
+	rf.lastApplied = 0
 
 	rf.lastHeartBeat = time.Now()
 	rf.resetTimeOut()
