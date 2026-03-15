@@ -115,7 +115,7 @@ func (rf *Raft) GetState() (int, bool) {
 type persistStates struct {
 	CurrentTerm int
 	VoteFor     int
-	logs        []logEntry
+	Logs        []logEntry
 }
 
 func (rf *Raft) persist() {
@@ -130,9 +130,9 @@ func (rf *Raft) persist() {
 	states = persistStates{
 		CurrentTerm: rf.currentTerm,
 		VoteFor:     rf.votedFor,
-		logs:        make([]logEntry, len(rf.logs)),
+		Logs:        make([]logEntry, len(rf.logs)),
 	}
-	copy(states.logs, rf.logs)
+	copy(states.Logs, rf.logs)
 	rf.mu.Unlock()
 
 	e.Encode(states)
@@ -159,7 +159,7 @@ func (rf *Raft) readPersist(data []byte) {
 	} else {
 		rf.currentTerm = states.CurrentTerm
 		rf.votedFor = states.VoteFor
-		copy(rf.logs, states.logs)
+		copy(rf.logs, states.Logs)
 	}
 	rf.mu.Unlock()
 
@@ -215,10 +215,14 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	if args.Term < rf.currentTerm {
 		reply.OK = false
+
+		rf.persist()
+
 		return
 	}
 
-	if (rf.votedFor == -1 || rf.votedFor == args.NodeId) && ((args.LastLogTerm > rf.logs[len(rf.logs)-1].Term) || (args.LastLogTerm == rf.logs[len(rf.logs)-1].Term && args.LastLogIndex >= len(rf.logs)-1)) {
+	if (rf.votedFor == -1 || rf.votedFor == args.NodeId) &&
+		((args.LastLogTerm > rf.logs[len(rf.logs)-1].Term) || (args.LastLogTerm == rf.logs[len(rf.logs)-1].Term && args.LastLogIndex >= len(rf.logs)-1)) {
 		reply.OK = true
 		rf.votedFor = args.NodeId
 		rf.lastHeartBeat = time.Now()
@@ -226,6 +230,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else {
 		reply.OK = false
 	}
+
+	rf.persist()
 }
 
 type AppendEntriesArgs struct {
@@ -299,6 +305,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.applyCond.Signal()
 	}
 
+	rf.persist()
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -335,6 +342,16 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	// if ok && !reply.OK && reply.Term == rf.currentTerm {
+	// 	rf.mu.Lock()
+	// 	// 快速回退策略
+	// 	if args.PrevLogIndex > 0 {
+	// 		rf.nextIndex[server] = max(1, args.PrevLogIndex/2)
+	// 	} else {
+	// 		rf.nextIndex[server] = 1
+	// 	}
+	// 	rf.mu.Unlock()
+	// }
 	return ok
 }
 
