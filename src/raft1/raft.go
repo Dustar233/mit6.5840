@@ -9,6 +9,8 @@ package raft
 import (
 	//	"bytes"
 
+	"bytes"
+	"fmt"
 	"math/rand"
 	"slices"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	//	"6.5840/labgob"
+	"6.5840/labgob"
 	"6.5840/labrpc"
 	"6.5840/raftapi"
 	tester "6.5840/tester1"
@@ -109,35 +112,57 @@ func (rf *Raft) GetState() (int, bool) {
 // second argument to persister.Save().
 // after you've implemented snapshots, pass the current snapshot
 // (or nil if there's not yet a snapshot).
+type persistStates struct {
+	CurrentTerm int
+	VoteFor     int
+	logs        []logEntry
+}
+
 func (rf *Raft) persist() {
 	// Your code here (3C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+
+	var states persistStates
+
+	rf.mu.Lock()
+	states = persistStates{
+		CurrentTerm: rf.currentTerm,
+		VoteFor:     rf.votedFor,
+		logs:        make([]logEntry, len(rf.logs)),
+	}
+	copy(states.logs, rf.logs)
+	rf.mu.Unlock()
+
+	e.Encode(states)
+	// empty for snapshot
+	raftstate := w.Bytes()
+	rf.persister.Save(raftstate, nil)
 }
 
 // restore previously persisted state.
 func (rf *Raft) readPersist(data []byte) {
-	if data == nil || len(data) < 1 { // bootstrap without any state?
+	if len(data) < 1 { // bootstrap without any state?
 		return
 	}
 	// Your code here (3C).
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	var states persistStates
+
+	rf.mu.Lock()
+	if d.Decode(&states) != nil {
+		fmt.Print("Failed to readPersist")
+	} else {
+		rf.currentTerm = states.CurrentTerm
+		rf.votedFor = states.VoteFor
+		copy(rf.logs, states.logs)
+	}
+	rf.mu.Unlock()
+
 }
 
 // how many bytes in Raft's persisted log?
