@@ -126,14 +126,14 @@ func (rf *Raft) persist() {
 
 	var states persistStates
 
-	rf.mu.Lock()
+
 	states = persistStates{
 		CurrentTerm: rf.currentTerm,
 		VoteFor:     rf.votedFor,
 		Logs:        make([]logEntry, len(rf.logs)),
 	}
 	copy(states.Logs, rf.logs)
-	rf.mu.Unlock()
+
 
 	e.Encode(states)
 	// empty for snapshot
@@ -153,7 +153,7 @@ func (rf *Raft) readPersist(data []byte) {
 
 	var states persistStates
 
-	rf.mu.Lock()
+	
 	if d.Decode(&states) != nil {
 		fmt.Print("Failed to readPersist")
 	} else {
@@ -161,7 +161,7 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.votedFor = states.VoteFor
 		copy(rf.logs, states.Logs)
 	}
-	rf.mu.Unlock()
+
 
 }
 
