@@ -130,9 +130,8 @@ func (rf *Raft) persist() {
 	states = persistStates{
 		CurrentTerm: rf.currentTerm,
 		VoteFor:     rf.votedFor,
-		Logs:        make([]logEntry, len(rf.logs)),
+		Logs:        rf.logs,
 	}
-	copy(states.Logs, rf.logs)
 
 
 	e.Encode(states)
@@ -155,11 +154,11 @@ func (rf *Raft) readPersist(data []byte) {
 
 	
 	if d.Decode(&states) != nil {
-		fmt.Print("Failed to readPersist")
+		fmt.Print("Failed to readPersist\n")
 	} else {
 		rf.currentTerm = states.CurrentTerm
 		rf.votedFor = states.VoteFor
-		copy(rf.logs, states.Logs)
+		rf.logs = states.Logs
 	}
 
 
@@ -211,12 +210,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.state = Follower
 		rf.currentTerm = args.Term
 		rf.votedFor = -1 //不能无条件投票，交由之后处理
+
+		rf.persist()
+
 	}
 
 	if args.Term < rf.currentTerm {
 		reply.OK = false
-
-		rf.persist()
 
 		return
 	}
@@ -227,11 +227,12 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.votedFor = args.NodeId
 		rf.lastHeartBeat = time.Now()
 		rf.resetTimeOut()
+
+		rf.persist()
 	} else {
 		reply.OK = false
 	}
 
-	rf.persist()
 }
 
 type AppendEntriesArgs struct {
@@ -255,6 +256,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	if args.Term > rf.currentTerm {
 		rf.currentTerm = args.Term
 		rf.votedFor = -1
+		rf.persist()
 	}
 
 	reply.Term = rf.currentTerm
@@ -300,12 +302,14 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		}
 
 	}
+
+	rf.persist()
+
 	if args.LeaderCommitIndex > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommitIndex, len(rf.logs)-1)
 		rf.applyCond.Signal()
 	}
 
-	rf.persist()
 }
 
 // example code to send a RequestVote RPC to a server.
@@ -342,16 +346,16 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	// if ok && !reply.OK && reply.Term == rf.currentTerm {
-	// 	rf.mu.Lock()
-	// 	// 快速回退策略
-	// 	if args.PrevLogIndex > 0 {
-	// 		rf.nextIndex[server] = max(1, args.PrevLogIndex/2)
-	// 	} else {
-	// 		rf.nextIndex[server] = 1
-	// 	}
-	// 	rf.mu.Unlock()
-	// }
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if ok && !reply.OK && reply.Term == rf.currentTerm {
+		// 快速回退策略
+		if args.PrevLogIndex > 0 {
+			rf.nextIndex[server] = max(1, args.PrevLogIndex/2)
+		} else {
+			rf.nextIndex[server] = 1
+		}
+	}
 	return ok
 }
 
@@ -387,6 +391,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 
 	rf.logs = append(rf.logs, newEntry)
+
+	rf.persist()
 
 	return index, term, isLeader
 }
@@ -426,6 +432,10 @@ func (rf *Raft) ticker() {
 			rf.resetTimeOut()
 
 			currentTerm := rf.currentTerm
+
+			rf.mu.Unlock()
+			rf.persist()
+			rf.mu.Lock()
 
 			args := RequestVoteArgs{
 				Term:         rf.currentTerm,
@@ -467,6 +477,9 @@ func (rf *Raft) ticker() {
 						rf.lastHeartBeat = time.Now()
 						rf.resetTimeOut()
 						rf.mu.Unlock()
+
+						rf.persist()
+
 						return
 					}
 
@@ -669,7 +682,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.resetTimeOut()
 
 	// initialize from state persisted before a crash
-	rf.readPersist(persister.ReadRaftState())
+	rf.readPersist(rf.persister.ReadRaftState())
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
