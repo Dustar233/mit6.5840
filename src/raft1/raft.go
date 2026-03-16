@@ -61,8 +61,8 @@ func (rf *Raft) resetTimeOut() {
 }
 
 const (
-	heartBeatTimeOut         = 250
-	heartBeatTimeOutDuration = 200
+	heartBeatTimeOut         = 300
+	heartBeatTimeOutDuration = 600
 	heartBeatFreq            = 110
 )
 
@@ -126,13 +126,11 @@ func (rf *Raft) persist() {
 
 	var states persistStates
 
-
 	states = persistStates{
 		CurrentTerm: rf.currentTerm,
 		VoteFor:     rf.votedFor,
 		Logs:        rf.logs,
 	}
-
 
 	e.Encode(states)
 	// empty for snapshot
@@ -152,7 +150,6 @@ func (rf *Raft) readPersist(data []byte) {
 
 	var states persistStates
 
-	
 	if d.Decode(&states) != nil {
 		fmt.Print("Failed to readPersist\n")
 	} else {
@@ -160,7 +157,6 @@ func (rf *Raft) readPersist(data []byte) {
 		rf.votedFor = states.VoteFor
 		rf.logs = states.Logs
 	}
-
 
 }
 
@@ -247,6 +243,9 @@ type AppendEntriesArgs struct {
 type AppendEntriesReply struct {
 	Term int
 	OK   bool
+
+	ConflictIndex int
+	ConflictTerm  int
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
@@ -278,8 +277,25 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// 	return
 	// }
 
-	if len(rf.logs) <= args.PrevLogIndex || rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+	if len(rf.logs) <= args.PrevLogIndex {
 		reply.OK = false
+		reply.ConflictIndex = len(rf.logs)
+		reply.ConflictTerm = -1
+		return
+	}
+	if rf.logs[args.PrevLogIndex].Term != args.PrevLogTerm {
+		reply.OK = false
+		reply.ConflictTerm = rf.logs[args.PrevLogIndex].Term
+
+		reply.ConflictIndex = 0
+
+		for i := args.PrevLogIndex - 1; i >= 0; i-- {
+			if rf.logs[i].Term != reply.ConflictTerm {
+				reply.ConflictIndex = i + 1
+				break
+			}
+		}
+
 		return
 	}
 
@@ -301,9 +317,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			}
 		}
 
+		rf.persist()
 	}
-
-	rf.persist()
 
 	if args.LeaderCommitIndex > rf.commitIndex {
 		rf.commitIndex = min(args.LeaderCommitIndex, len(rf.logs)-1)
@@ -346,16 +361,16 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	if ok && !reply.OK && reply.Term == rf.currentTerm {
-		// 快速回退策略
-		if args.PrevLogIndex > 0 {
-			rf.nextIndex[server] = max(1, args.PrevLogIndex/2)
-		} else {
-			rf.nextIndex[server] = 1
-		}
-	}
+	// rf.mu.Lock()
+	// defer rf.mu.Unlock()
+	// if ok && !reply.OK && reply.Term == rf.currentTerm {
+	// 	// 快速回退策略
+	// 	if args.PrevLogIndex > 0 {
+	// 		rf.nextIndex[server] = max(1, args.PrevLogIndex/2)
+	// 	} else {
+	// 		rf.nextIndex[server] = 1
+	// 	}
+	// }
 	return ok
 }
 
@@ -433,9 +448,7 @@ func (rf *Raft) ticker() {
 
 			currentTerm := rf.currentTerm
 
-			rf.mu.Unlock()
 			rf.persist()
-			rf.mu.Lock()
 
 			args := RequestVoteArgs{
 				Term:         rf.currentTerm,
@@ -445,9 +458,9 @@ func (rf *Raft) ticker() {
 			}
 
 			times := len(rf.peers)
-			rf.mu.Unlock()
 
 			rf.voteTotal = 1
+			rf.mu.Unlock()
 
 			for i := 0; i < times; i++ {
 
@@ -476,9 +489,10 @@ func (rf *Raft) ticker() {
 						rf.votedFor = -1
 						rf.lastHeartBeat = time.Now()
 						rf.resetTimeOut()
-						rf.mu.Unlock()
 
 						rf.persist()
+
+						rf.mu.Unlock()
 
 						return
 					}
@@ -585,10 +599,30 @@ func (rf *Raft) broadCastHeartBeat() {
 				} else if reply.Term == rf.currentTerm {
 
 					if reply.OK == false {
-						rf.nextIndex[i]--
-						if rf.nextIndex[i] < 1 {
-							rf.nextIndex[i] = 1
+						if reply.ConflictTerm == -1 {
+							// Case 1: Follower 日志太短
+							rf.nextIndex[i] = reply.ConflictIndex
+						} else {
+							// Case 2 & 3: Term 冲突
+							// 尝试在 Leader 自己的日志中找一下这个 ConflictTerm
+							lastIndexWithTerm := -1
+							for j := len(rf.logs) - 1; j > 0; j-- {
+								if rf.logs[j].Term == reply.ConflictTerm {
+									lastIndexWithTerm = j
+									break
+								}
+							}
+
+							if lastIndexWithTerm != -1 {
+								// Case 2: Leader 有这个 Term，则从该 Term 的下一条开始试
+								rf.nextIndex[i] = lastIndexWithTerm + 1
+							} else {
+								// Case 3: Leader 没这个 Term，直接跳到 Follower 那个 Term 的起点
+								rf.nextIndex[i] = reply.ConflictIndex
+							}
 						}
+						// 防止减过头（虽然逻辑上不应该）
+						rf.nextIndex[i] = max(1, rf.nextIndex[i])
 					} else {
 						newMatch := args.PrevLogIndex + len(args.Entries)
 						if newMatch > rf.matchIndex[i] {
