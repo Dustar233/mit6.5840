@@ -61,8 +61,8 @@ func (rf *Raft) resetTimeOut() {
 }
 
 const (
-	heartBeatTimeOut         = 300
-	heartBeatTimeOutDuration = 600
+	heartBeatTimeOut         = 550
+	heartBeatTimeOutDuration = 1300
 	heartBeatFreq            = 110
 )
 
@@ -287,7 +287,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.OK = false
 		reply.ConflictTerm = rf.logs[args.PrevLogIndex].Term
 
-		reply.ConflictIndex = 0
+		reply.ConflictIndex = 1
 
 		for i := args.PrevLogIndex - 1; i >= 0; i-- {
 			if rf.logs[i].Term != reply.ConflictTerm {
@@ -299,25 +299,24 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 
-	step := args.PrevLogIndex
-	for _, Entry := range args.Entries {
+	//优化：不可靠网络环境下，顺序不确定，可能导致覆盖问题。改为找不同点一次截断
+	step := args.PrevLogIndex + 1
+	for i, Entry := range args.Entries {
 
-		step++
-
-		tempLog := logEntry{
-			Data: Entry.Data,
-			Term: Entry.Term,
-		}
 		if step >= len(rf.logs) {
-			rf.logs = append(rf.logs, tempLog)
+			rf.logs = append(rf.logs, args.Entries[i:]...)
+			rf.persist()
+			break
 		} else {
-			if rf.logs[step].Term != tempLog.Term {
+			if rf.logs[step].Term != Entry.Term {
 				rf.logs = rf.logs[:step]
-				rf.logs = append(rf.logs, tempLog)
+				rf.logs = append(rf.logs, args.Entries[i:]...)
+				rf.persist()
+				break
 			}
 		}
 
-		rf.persist()
+		step++
 	}
 
 	if args.LeaderCommitIndex > rf.commitIndex {
@@ -361,16 +360,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	// rf.mu.Lock()
-	// defer rf.mu.Unlock()
-	// if ok && !reply.OK && reply.Term == rf.currentTerm {
-	// 	// 快速回退策略
-	// 	if args.PrevLogIndex > 0 {
-	// 		rf.nextIndex[server] = max(1, args.PrevLogIndex/2)
-	// 	} else {
-	// 		rf.nextIndex[server] = 1
-	// 	}
-	// }
 	return ok
 }
 
@@ -483,14 +472,20 @@ func (rf *Raft) ticker() {
 
 					rf.mu.Lock()
 
+					if rf.state != Candidate || rf.currentTerm != args.Term {
+						rf.mu.Unlock()
+						return
+					}
+
 					if reply.Term > rf.currentTerm {
 						rf.state = Follower
 						rf.currentTerm = reply.Term
 						rf.votedFor = -1
-						rf.lastHeartBeat = time.Now()
-						rf.resetTimeOut()
 
 						rf.persist()
+
+						rf.lastHeartBeat = time.Now()
+						rf.resetTimeOut()
 
 						rf.mu.Unlock()
 
@@ -590,10 +585,18 @@ func (rf *Raft) broadCastHeartBeat() {
 			ok := rf.sendAppendEntries(i, &args, &reply)
 			if ok {
 				rf.mu.Lock()
+				if rf.currentTerm != args.Term || rf.state != Leader { //加入过期检查
+					rf.mu.Unlock()
+					return
+				}
+
 				if reply.Term > rf.currentTerm {
 					rf.currentTerm = reply.Term
 					rf.state = Follower
 					rf.votedFor = -1
+
+					rf.persist()
+
 					rf.lastHeartBeat = time.Now()
 					rf.resetTimeOut()
 				} else if reply.Term == rf.currentTerm {
@@ -663,6 +666,7 @@ func (rf *Raft) applier() {
 		tempArr := make([]logEntry, rf.commitIndex-rf.lastApplied)
 		copy(tempArr, rf.logs[rf.lastApplied+1:rf.commitIndex+1])
 		lastApplied := rf.lastApplied
+
 		rf.mu.Unlock()
 
 		cnt := 0
@@ -716,7 +720,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.resetTimeOut()
 
 	// initialize from state persisted before a crash
-	rf.readPersist(rf.persister.ReadRaftState())
+	if rf.persister.RaftStateSize() > 0 {
+		rf.readPersist(rf.persister.ReadRaftState())
+	}
 
 	// start ticker goroutine to start elections
 	go rf.ticker()

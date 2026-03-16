@@ -3,9 +3,9 @@ import concurrent.futures
 import time
 
 # === 配置区 ===
-TEST_REGEX = "3A|3B|3C"  # 你可以改成单独的 "3A" 或 "3A|3B" 等
+TEST_REGEX = "3C"  # 你可以改成单独的 "3A" 或 "3A|3B" 等
 ITERATIONS = 100         # 测试总次数
-WORKERS = 4              # 并发数（建议设置为你的 CPU 逻辑核心数的一半）
+WORKERS = 16              # 并发数（建议设置为你的 CPU 逻辑核心数的一半）
 TIMEOUT = 300            # 单次测试的超时时间（秒）。Lab 3 完整跑完通常需要 2-3 分钟，设置 300 比较安全
 # ============
 
@@ -24,7 +24,7 @@ def run_test(task_id):
             return True
         else:
             print(f"❌ [FAIL] Task {task_id:03d} ({duration:.1f}s) - 保存日志...")
-            log_file = f"fail_Task{task_id:03d}.log"
+            log_file = f"logs/fail_Task{task_id:03d}.log"
             with open(log_file, "w") as f:
                 f.write(result.stdout)
                 f.write(result.stderr)
@@ -32,7 +32,7 @@ def run_test(task_id):
             
     except subprocess.TimeoutExpired as e:
         print(f"⚠️ [TIMEOUT] Task {task_id:03d} (> {TIMEOUT}s) - 可能是死锁，保存日志...")
-        log_file = f"timeout_Task{task_id:03d}.log"
+        log_file = f"logs/timeout_Task{task_id:03d}.log"
         with open(log_file, "w") as f:
             f.write(f"测试超时，设定时间为 {TIMEOUT} 秒。\n")
             # Python 的超时异常包含标准输出字节流
