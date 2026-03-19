@@ -46,6 +46,9 @@ type Raft struct {
 	commitIndex int
 	lastApplied int
 
+	LastIncludedIndex int
+	LastIncludedTerm  int
+
 	nextIndex  []int
 	matchIndex []int
 
@@ -174,6 +177,53 @@ func (rf *Raft) PersistBytes() int {
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (3D).
 
+}
+
+func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
+
+}
+
+type InstallSnapshotArgs struct {
+	Term     int
+	LeaderId int
+
+	LastIncludedIndex int
+	LastIncludedTerm  int
+
+	data []byte
+	done bool
+}
+
+type InstallSnapshotReply struct {
+	Term int
+}
+
+func (rf *Raft) getPhysicalIndex(index int) int {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	return index - rf.LastIncludedIndex - 1
+}
+
+func (rf *Raft) getLogEntry(index int) logEntry {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	return rf.logs[rf.getPhysicalIndex(index)]
+}
+
+func (rf *Raft) getLastLogIndex() int {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	return len(rf.logs) - 1 + rf.LastIncludedIndex
+}
+
+func (rf *Raft) getLastLogTerm() int {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+
+	return rf.logs[len(rf.logs)-1].Term
 }
 
 // example RequestVote RPC arguments structure.
@@ -703,6 +753,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.applyCh = applyCh
 	rf.applyCond = *sync.NewCond(&rf.mu)
 	// Your initialization code here (3A, 3B, 3C).
+
+	rf.LastIncludedIndex = 0
+	rf.LastIncludedTerm = 0
 
 	rf.state = Follower
 	rf.currentTerm = 0
