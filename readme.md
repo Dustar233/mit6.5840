@@ -2,6 +2,8 @@
 
 It's forked from mit6.824 (now mit6.8540).
 
+the Labs' order based on Schedule 2026
+
 It is aimed to learn:
 
 1. git command
@@ -13,4 +15,5 @@ It is aimed to learn:
 
 1. Lab 1 MapReduce 
 2. Lab 2 K/V System
-3. Lab 3 Raft (now)
+3. Lab 3 Raft
+4. Lab 4 KV Raft
