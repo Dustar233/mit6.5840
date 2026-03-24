@@ -99,7 +99,7 @@ func (rf *Raft) GetState() (int, bool) {
 	defer rf.mu.Unlock()
 
 	term = rf.currentTerm
-	if rf.state == Leader {
+	if rf.state == Leader && !rf.killed() {
 		isleader = true
 	} else {
 		isleader = false
@@ -531,6 +531,11 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	// Your code here (3B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+
+	if rf.state != Leader || rf.killed() {
+		return -1, -1, false
+	}
+
 	if rf.state != Leader {
 		return -1, -1, false
 	}
@@ -927,6 +932,7 @@ func (rf *Raft) applier() {
 				CommandValid: true,
 				Command:      Entry.Data,
 				CommandIndex: lastApplied + i + 1,
+				CommandTerm:  Entry.Term,
 			}
 
 			rf.mu.Lock()
