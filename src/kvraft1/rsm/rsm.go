@@ -51,7 +51,11 @@ type RSM struct {
 	maxraftstate int // snapshot if log grows this big
 	sm           StateMachine
 	// Your definitions here.
-	dead int32
+	dead              int32
+	LastSnapshotIndex int
+	LastSnapshotTerm  int
+
+	LastAppliedIndex int
 
 	table map[int]chan Notification
 }
@@ -83,12 +87,21 @@ func (rsm *RSM) killed() bool {
 func MakeRSM(servers []*labrpc.ClientEnd, me int, persister *tester.Persister, maxraftstate int, sm StateMachine) *RSM {
 
 	rsm := &RSM{
-		me:           me,
-		maxraftstate: maxraftstate,
-		applyCh:      make(chan raftapi.ApplyMsg),
-		sm:           sm,
-		table:        make(map[int]chan Notification),
+		me:                me,
+		maxraftstate:      maxraftstate,
+		applyCh:           make(chan raftapi.ApplyMsg),
+		sm:                sm,
+		table:             make(map[int]chan Notification),
+		LastSnapshotIndex: 0,
+		LastSnapshotTerm:  0,
+
+		LastAppliedIndex: 0,
 	}
+
+	if persister.SnapshotSize() > 0 {
+		sm.Restore(persister.ReadSnapshot())
+	}
+
 	if !useRaftStateMachine {
 		rsm.rf = raft.Make(servers, me, persister, rsm.applyCh)
 	}
@@ -112,7 +125,33 @@ func (rsm *RSM) Reader() {
 			return
 		}
 
+		if ApplyMsg.SnapshotValid {
+
+			rsm.mu.Lock()
+
+			if ApplyMsg.SnapshotIndex <= rsm.LastSnapshotIndex || ApplyMsg.SnapshotTerm < rsm.LastSnapshotTerm {
+
+				rsm.mu.Unlock()
+				continue
+			}
+
+			rsm.LastSnapshotIndex = ApplyMsg.SnapshotIndex
+			rsm.LastSnapshotTerm = ApplyMsg.SnapshotTerm
+
+			rsm.mu.Unlock()
+
+			snapshot := ApplyMsg.Snapshot
+
+			rsm.sm.Restore(snapshot)
+
+			continue
+		}
+
 		op := ApplyMsg.Command
+
+		rsm.mu.Lock()
+		rsm.LastAppliedIndex = ApplyMsg.CommandIndex
+		rsm.mu.Unlock()
 
 		req := op.(Op).Req
 
@@ -138,6 +177,14 @@ func (rsm *RSM) Reader() {
 			}
 
 		}
+
+		rsm.mu.Lock()
+
+		if rsm.rf.PersistBytes() >= int(float64(rsm.maxraftstate)*0.9) && rsm.maxraftstate != -1 {
+			snapshot := rsm.sm.Snapshot()
+			rsm.rf.Snapshot(rsm.LastAppliedIndex, snapshot)
+		}
+		rsm.mu.Unlock()
 
 	}
 }
@@ -184,7 +231,6 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 	ch := make(chan Notification, 1)
 
 	rsm.mu.Lock()
-
 	index, term, isLeader := rsm.rf.Start(op)
 
 	if !isLeader {
@@ -215,9 +261,10 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 			if noti.Term != term {
 				return rpc.ErrWrongLeader, nil
 			}
+
 			return rpc.OK, noti.Value
 
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(200 * time.Millisecond):
 
 			currentTerm, isLeader := rsm.rf.GetState()
 			if !isLeader || currentTerm != term {

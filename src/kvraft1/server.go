@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -24,7 +25,7 @@ type KVServer struct {
 
 	mu        sync.Mutex
 	lastSeqNo map[int64]int
-	lastOp    map[int64]any
+	lastOp    map[int64]rpc.PutReply
 
 	datas map[string]data
 
@@ -55,14 +56,14 @@ func (kv *KVServer) DoOp(req any) any {
 
 		val, ok := kv.datas[args.Key]
 		if !ok {
-			rep := &rpc.GetReply{
+			rep := rpc.GetReply{
 				Err: rpc.ErrNoKey,
 			}
 
 			return rep
 		}
 
-		rep := &rpc.GetReply{
+		rep := rpc.GetReply{
 			Value:   val.Value,
 			Version: val.Version,
 			Err:     rpc.OK,
@@ -98,7 +99,7 @@ func (kv *KVServer) DoOp(req any) any {
 
 			} else {
 
-				rep := &rpc.PutReply{
+				rep := rpc.PutReply{
 					Err: rpc.ErrVersion,
 				}
 
@@ -116,7 +117,7 @@ func (kv *KVServer) DoOp(req any) any {
 
 		kv.datas[args.Key] = tmp
 
-		rep := &rpc.PutReply{
+		rep := rpc.PutReply{
 			Err: rpc.OK,
 		}
 
@@ -133,13 +134,69 @@ func (kv *KVServer) DoOp(req any) any {
 
 }
 
+type SnapshotData struct {
+	LastSeqNo map[int64]int
+	Datas     map[string]data
+	LastOp    map[int64]rpc.PutReply
+}
+
 func (kv *KVServer) Snapshot() []byte {
 	// Your code here
-	return nil
+
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	msg := SnapshotData{
+		LastSeqNo: make(map[int64]int),
+		Datas:     make(map[string]data),
+		LastOp:    make(map[int64]rpc.PutReply),
+	}
+
+	for k, v := range kv.lastSeqNo {
+		msg.LastSeqNo[k] = v
+	}
+
+	for k, v := range kv.datas {
+		msg.Datas[k] = v
+	}
+
+	for k, v := range kv.lastOp {
+		msg.LastOp[k] = v
+	}
+
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+
+	e.Encode(msg)
+
+	states := w.Bytes()
+
+	// fmt.Printf("[DEBUG] Snapshot generated, length: %d\n", len(states))
+
+	return states
 }
 
 func (kv *KVServer) Restore(data []byte) {
+
+	// fmt.Printf("[DEBUG] Restore called with data length: %d\n", len(data))
 	// Your code here
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+
+	var msg SnapshotData
+	err := d.Decode(&msg)
+	if err != nil {
+		fmt.Printf("Failed to readSnapshot, error details: %v\n", err)
+	} else {
+
+		kv.lastOp = msg.LastOp
+		kv.lastSeqNo = msg.LastSeqNo
+		kv.datas = msg.Datas
+	}
+
 }
 
 func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
@@ -154,7 +211,7 @@ func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 	}
 
 	if rep != nil {
-		actualReply := rep.(*rpc.GetReply)
+		actualReply := rep.(rpc.GetReply)
 		reply.Value = actualReply.Value
 		reply.Version = actualReply.Version
 		reply.Err = actualReply.Err
@@ -173,7 +230,7 @@ func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
 	}
 
 	if rep != nil {
-		actualReply := rep.(*rpc.PutReply)
+		actualReply := rep.(rpc.PutReply)
 		reply.Err = actualReply.Err
 	}
 }
@@ -207,14 +264,19 @@ func StartKVServer(servers []*labrpc.ClientEnd, gid tester.Tgid, me int, persist
 	labgob.Register(rsm.Op{})
 	labgob.Register(rpc.PutArgs{})
 	labgob.Register(rpc.GetArgs{})
+	labgob.Register(SnapshotData{})
+	labgob.Register(data{})
 
 	kv := &KVServer{me: me}
 
+	kv.mu.Lock()
+	kv.lastSeqNo = make(map[int64]int)
+	kv.lastOp = make(map[int64]rpc.PutReply)
+	kv.datas = make(map[string]data)
+	kv.mu.Unlock()
+
 	kv.rsm = rsm.MakeRSM(servers, me, persister, maxraftstate, kv)
 	// You may need initialization code here.
-	kv.lastSeqNo = make(map[int64]int)
-	kv.lastOp = make(map[int64]any)
-	kv.datas = make(map[string]data)
 
 	return []tester.IService{kv, kv.rsm.Raft()}
 }

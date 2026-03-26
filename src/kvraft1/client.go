@@ -144,7 +144,7 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 		if !ok {
 			ck.recentLeader = (ck.recentLeader + 1) % len(ck.servers)
 			first_time = false
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			continue
 		}
 
