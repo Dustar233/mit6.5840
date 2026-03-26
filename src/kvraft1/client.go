@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"math/big"
 	"sync"
+	"time"
 
 	"6.5840/kvsrv1/rpc"
 	kvtest "6.5840/kvtest1"
@@ -88,11 +89,6 @@ func (ck *Clerk) Get(key string) (string, rpc.Tversion, rpc.Err) {
 			continue
 		}
 
-		if reply.Err == rpc.ErrMaybe {
-			ck.recentLeader = (ck.recentLeader + 1) % len(ck.servers)
-			continue
-		}
-
 		if reply.Err == rpc.OK {
 			break
 		}
@@ -137,6 +133,8 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 
 	ck.SeqNo++
 
+	first_time := true
+
 	for {
 
 		reply = rpc.PutReply{}
@@ -145,11 +143,17 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 
 		if !ok {
 			ck.recentLeader = (ck.recentLeader + 1) % len(ck.servers)
+			first_time = false
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
 
 		if reply.Err == rpc.ErrVersion {
-			return rpc.ErrVersion
+			if first_time {
+				return rpc.ErrVersion
+			} else {
+				return rpc.ErrMaybe
+			}
 		}
 
 		if reply.Err == rpc.ErrWrongGroup {
@@ -158,11 +162,6 @@ func (ck *Clerk) Put(key string, value string, version rpc.Tversion) rpc.Err {
 		}
 
 		if reply.Err == rpc.ErrWrongLeader {
-			ck.recentLeader = (ck.recentLeader + 1) % len(ck.servers)
-			continue
-		}
-
-		if reply.Err == rpc.ErrMaybe {
 			ck.recentLeader = (ck.recentLeader + 1) % len(ck.servers)
 			continue
 		}

@@ -3,7 +3,7 @@ import concurrent.futures
 import time
 
 # === 配置区 ===
-TEST_REGEX = "3C"  # 你可以改成单独的 "3A" 或 "3A|3B" 等
+TEST_REGEX = "3D"  # 你可以改成单独的 "3A" 或 "3A|3B" 等
 ITERATIONS = 100         # 测试总次数
 WORKERS = 16              # 并发数（建议设置为你的 CPU 逻辑核心数的一半）
 TIMEOUT = 300            # 单次测试的超时时间（秒）。Lab 3 完整跑完通常需要 2-3 分钟，设置 300 比较安全

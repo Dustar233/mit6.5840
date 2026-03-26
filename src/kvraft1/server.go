@@ -1,6 +1,7 @@
 package kvraft
 
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -42,9 +43,16 @@ func (kv *KVServer) DoOp(req any) any {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
 
+	if ptr, ok := req.(*rpc.GetArgs); ok {
+		req = *ptr
+	} else if ptr, ok := req.(*rpc.PutArgs); ok {
+		req = *ptr
+	}
+
 	switch args := req.(type) {
 
-	case *rpc.GetArgs:
+	case rpc.GetArgs:
+
 		val, ok := kv.datas[args.Key]
 		if !ok {
 			rep := &rpc.GetReply{
@@ -59,20 +67,51 @@ func (kv *KVServer) DoOp(req any) any {
 			Version: val.Version,
 			Err:     rpc.OK,
 		}
-		kv.lastOp[args.ClientId] = rep
-		kv.lastSeqNo[args.ClientId] = args.SeqNo
+
+		// kv.lastOp[args.ClientId] = rep
+		// kv.lastSeqNo[args.ClientId] = args.SeqNo
 
 		return rep
 
-	case *rpc.PutArgs:
+	case rpc.PutArgs:
 
-		if kv.lastSeqNo[args.ClientId] >= args.SeqNo {
-			return kv.lastOp[args.ClientId]
+		lastSeqNo, ok := kv.lastSeqNo[args.ClientId]
+
+		if ok {
+			if lastSeqNo >= args.SeqNo {
+				return kv.lastOp[args.ClientId]
+			}
 		}
 
-		tmp := data{
-			Value:   args.Value,
-			Version: args.Version,
+		d, exists := kv.datas[args.Key]
+
+		var tmp data
+
+		if exists {
+
+			if args.Version == d.Version {
+
+				tmp = data{
+					Value:   args.Value,
+					Version: args.Version + 1,
+				}
+
+			} else {
+
+				rep := &rpc.PutReply{
+					Err: rpc.ErrVersion,
+				}
+
+				return rep
+			}
+
+		} else {
+
+			tmp = data{
+				Value:   args.Value,
+				Version: args.Version + 1,
+			}
+
 		}
 
 		kv.datas[args.Key] = tmp
@@ -80,13 +119,14 @@ func (kv *KVServer) DoOp(req any) any {
 		rep := &rpc.PutReply{
 			Err: rpc.OK,
 		}
+
 		kv.lastOp[args.ClientId] = rep
 		kv.lastSeqNo[args.ClientId] = args.SeqNo
 
 		return rep
 
 	default:
-
+		fmt.Printf("FATAL BUG: DoOp Unknown type: %T\n", req)
 		return nil
 
 	}

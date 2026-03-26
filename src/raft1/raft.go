@@ -64,9 +64,9 @@ func (rf *Raft) resetTimeOut() {
 }
 
 const (
-	heartBeatTimeOut         = 550
-	heartBeatTimeOutDuration = 1300
-	heartBeatFreq            = 110
+	heartBeatTimeOut         = 250
+	heartBeatTimeOutDuration = 150
+	heartBeatFreq            = 100
 )
 
 func (rf *Raft) isHeartBeat() bool {
@@ -332,8 +332,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	reply.Term = rf.currentTerm
-
 	if args.Term > rf.currentTerm {
 		rf.state = Follower
 		rf.currentTerm = args.Term
@@ -342,6 +340,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.persist(nil)
 
 	}
+
+	reply.Term = rf.currentTerm
 
 	if args.Term < rf.currentTerm {
 		reply.OK = false
@@ -427,6 +427,12 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		reply.OK = false
 		reply.ConflictTerm = rf.getLogEntry(args.PrevLogIndex).Term
 
+		if args.PrevLogIndex == rf.LastIncludedIndex {
+			reply.ConflictIndex = rf.LastIncludedIndex
+			reply.ConflictTerm = -1
+			return
+		}
+
 		reply.ConflictIndex = rf.LastIncludedIndex + 1
 
 		for i := args.PrevLogIndex - 1; i >= rf.LastIncludedIndex; i-- {
@@ -463,8 +469,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 
 	if args.LeaderCommitIndex > rf.commitIndex {
 		matchIndex := args.PrevLogIndex + len(args.Entries)
-		rf.commitIndex = min(args.LeaderCommitIndex, matchIndex)
-		rf.applyCond.Signal()
+		newCommit := min(args.LeaderCommitIndex, matchIndex)
+		if newCommit > rf.commitIndex {
+			rf.commitIndex = newCommit
+			rf.applyCond.Signal()
+		}
 	}
 
 }
@@ -548,6 +557,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	}
 
 	rf.logs = append(rf.logs, newEntry)
+
+	go rf.broadCastHeartBeat()
 
 	rf.persist(nil)
 
@@ -772,8 +783,12 @@ func (rf *Raft) broadCastHeartBeat() {
 					return
 				}
 
-				rf.nextIndex[i] = args.LastIncludedIndex + 1
-				rf.matchIndex[i] = args.LastIncludedIndex
+				if args.LastIncludedIndex > rf.matchIndex[i] {
+					rf.matchIndex[i] = args.LastIncludedIndex
+				}
+				if args.LastIncludedIndex+1 > rf.nextIndex[i] {
+					rf.nextIndex[i] = args.LastIncludedIndex + 1
+				}
 
 				rf.updateCommitIndex()
 

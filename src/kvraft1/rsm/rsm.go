@@ -126,6 +126,7 @@ func (rsm *RSM) Reader() {
 
 		rsm.mu.Lock()
 		ch, exists := rsm.table[ApplyMsg.CommandIndex]
+		rsm.mu.Unlock()
 		if exists {
 
 			select {
@@ -137,7 +138,7 @@ func (rsm *RSM) Reader() {
 			}
 
 		}
-		rsm.mu.Unlock()
+
 	}
 }
 
@@ -161,11 +162,11 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 	switch args := req.(type) {
 	case *rpc.GetArgs:
 		op.Req = args
-		op.ClientId = nrand()
+		op.ClientId = args.ClientId
 		op.SeqNo = args.SeqNo
 	case *rpc.PutArgs:
 		op.Req = args
-		op.ClientId = nrand()
+		op.ClientId = args.ClientId
 		op.SeqNo = args.SeqNo
 	default:
 		op = Op{
@@ -179,15 +180,18 @@ func (rsm *RSM) Submit(req any) (rpc.Err, any) {
 	} // for A
 
 	// fmt.Printf("%d\n", op.ClientId)
-	index, term, isLeader := rsm.rf.Start(op)
-
-	if !isLeader {
-		return rpc.ErrWrongLeader, nil // i'm dead, try another server.
-	}
 
 	ch := make(chan Notification, 1)
 
 	rsm.mu.Lock()
+
+	index, term, isLeader := rsm.rf.Start(op)
+
+	if !isLeader {
+		rsm.mu.Unlock()
+		return rpc.ErrWrongLeader, nil // i'm dead, try another server.
+	}
+
 	rsm.table[index] = ch
 	rsm.mu.Unlock()
 

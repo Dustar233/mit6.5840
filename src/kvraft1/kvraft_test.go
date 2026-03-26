@@ -9,7 +9,7 @@ import (
 
 	"6.5840/kvraft1/rsm"
 	"6.5840/kvsrv1/rpc"
-	"6.5840/kvtest1"
+	kvtest "6.5840/kvtest1"
 	tester "6.5840/tester1"
 )
 
@@ -159,6 +159,8 @@ func (ts *Test) GenericTestSpeed() {
 	const timePerOp = heartbeatInterval / opsPerInterval
 	if dur > numOps*timePerOp {
 		ts.t.Fatalf("Operations completed too slowly %v/op > %v/op\n", dur/numOps, timePerOp)
+	} else {
+		fmt.Printf("success, %v/op\n", dur/numOps)
 	}
 }
 
