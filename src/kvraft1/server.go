@@ -144,7 +144,6 @@ func (kv *KVServer) Snapshot() []byte {
 	// Your code here
 
 	kv.mu.Lock()
-	defer kv.mu.Unlock()
 
 	msg := SnapshotData{
 		LastSeqNo: make(map[int64]int),
@@ -163,6 +162,8 @@ func (kv *KVServer) Snapshot() []byte {
 	for k, v := range kv.lastOp {
 		msg.LastOp[k] = v
 	}
+
+	kv.mu.Unlock()
 
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)

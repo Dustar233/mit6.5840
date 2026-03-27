@@ -13,7 +13,8 @@ It is aimed to learn:
 
 # stage 
 
-1. Lab 1 MapReduce 
-2. Lab 2 K/V System
+1. Lab 1 MapReduce (100-times AC)
+2. Lab 2 K/V System (100-times AC)
 3. Lab 3 Raft
 4. Lab 4 KV Raft
+5. Lab 5 Shared K/V (now)
